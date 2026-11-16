@@ -56,21 +56,24 @@ impl Conn {
     }
 
     fn process(&mut self, app: &mut App) -> Next {
-        match app.handle(&self.inbuf[..self.filled], &mut self.out) {
-            Handled::NeedMore => {
-                // Only valid for this API: all its requests fit in inbuf.
-                if self.filled == self.inbuf.len() {
-                    return Next::Close;
-                }
-                Next::Recv
+        let mut start = 0;
+        loop {
+            match app.handle(&self.inbuf[start..self.filled], &mut self.out) {
+                Handled::Responded { consumed } => start += consumed,
+                Handled::NeedMore => break,
+                Handled::Close => return Next::Close,
             }
-            Handled::Responded { consumed } => {
-                self.inbuf.copy_within(consumed..self.filled, 0);
-                self.filled -= consumed;
-                Next::Send
-            }
-            Handled::Close => Next::Close,
         }
+        self.inbuf.copy_within(start..self.filled, 0);
+        self.filled -= start;
+        if !self.out.is_empty() {
+            return Next::Send;
+        }
+        // Only valid for this API: all its requests fit in inbuf.
+        if self.filled == self.inbuf.len() {
+            return Next::Close;
+        }
+        Next::Recv
     }
 }
 
