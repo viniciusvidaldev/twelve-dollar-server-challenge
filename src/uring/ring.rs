@@ -33,10 +33,9 @@ impl IoUring {
             ));
         }
 
-        let sq_len = p.sq_off.array as usize + p.sq_entries as usize * size_of::<u32>();
-        let cq_len =
+        // With NO_SQARRAY + SINGLE_MMAP, the CQE array is the tail of the shared ring region.
+        let ring_len =
             p.cq_off.cqes as usize + p.cq_entries as usize * size_of::<io_uring::io_uring_cqe>();
-        let ring_len = sq_len.max(cq_len);
         let ring_map = Mmap::new(fd.as_fd(), ring_len, io_uring::IORING_OFF_SQ_RING)?;
 
         let sqe_len = p.sq_entries as usize * size_of::<io_uring::io_uring_sqe>();
@@ -49,7 +48,6 @@ impl IoUring {
                 head: base.add(off.head as usize).cast(),
                 tail: base.add(off.tail as usize).cast(),
                 mask: *base.add(off.ring_mask as usize).cast::<u32>(),
-                entries: *base.add(off.ring_entries as usize).cast::<u32>(),
                 cqes: base.add(off.cqes as usize).cast(),
                 local_head: (*base.add(off.head as usize).cast::<AtomicU32>())
                     .load(Ordering::Relaxed),
@@ -64,7 +62,6 @@ impl IoUring {
             SubmissionQueue {
                 head: base.add(off.head as usize).cast(),
                 tail: base.add(off.tail as usize).cast(),
-                flags: base.add(off.flags as usize).cast(),
                 mask: *base.add(off.ring_mask as usize).cast::<u32>(),
                 entries: *base.add(off.ring_entries as usize).cast::<u32>(),
                 sqes: sqe_map.as_ptr().cast(),
@@ -169,7 +166,6 @@ impl IoUring {
 struct SubmissionQueue {
     head: *const AtomicU32,
     tail: *const AtomicU32,
-    flags: *const AtomicU32,
     mask: u32,
     entries: u32,
     sqes: *mut io_uring::io_uring_sqe,
@@ -181,7 +177,6 @@ struct CompletionQueue {
     head: *const AtomicU32,
     tail: *const AtomicU32,
     mask: u32,
-    entries: u32,
     cqes: *const io_uring::io_uring_cqe,
     local_head: u32,
     cached_tail: u32,

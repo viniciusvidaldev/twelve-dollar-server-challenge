@@ -1,4 +1,4 @@
-use std::ffi::{c_int, c_long, c_void};
+use std::ffi::{c_int, c_void};
 
 pub const PROT_READ: c_int = 0x1;
 pub const PROT_WRITE: c_int = 0x2;
@@ -18,5 +18,4 @@ unsafe extern "C" {
         offset: i64,
     ) -> *mut c_void;
     pub fn munmap(addr: *mut c_void, length: usize) -> c_int;
-    pub fn syscall(number: c_long, ...) -> c_long;
 }

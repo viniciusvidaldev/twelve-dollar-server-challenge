@@ -1,0 +1,126 @@
+use std::{mem, os::fd::RawFd};
+
+use crate::app::{App, Handled};
+
+pub struct Conn {
+    fd: RawFd,
+    inbuf: Box<[u8]>,
+    filled: usize,
+    out: Vec<u8>,
+    sent: usize,
+}
+
+impl Conn {
+    pub fn new(fd: RawFd) -> Self {
+        Self {
+            fd,
+            inbuf: vec![0u8; 4096].into_boxed_slice(),
+            filled: 0,
+            out: Vec::with_capacity(4096),
+            sent: 0,
+        }
+    }
+
+    pub fn fd(&self) -> RawFd {
+        self.fd
+    }
+
+    pub fn recv_buf(&mut self) -> &mut [u8] {
+        &mut self.inbuf[self.filled..]
+    }
+
+    pub fn unsent(&self) -> &[u8] {
+        &self.out[self.sent..]
+    }
+
+    pub fn after_recv(&mut self, n: usize, app: &mut App) -> Next {
+        self.filled += n;
+        self.process(app)
+    }
+
+    pub fn after_send(&mut self, n: usize, app: &mut App) -> Next {
+        self.sent += n;
+        if self.sent < self.out.len() {
+            return Next::Send;
+        }
+        self.out.clear();
+        self.sent = 0;
+        self.process(app)
+    }
+
+    fn process(&mut self, app: &mut App) -> Next {
+        match app.handle(&self.inbuf[..self.filled], &mut self.out) {
+            Handled::NeedMore => {
+                // Only valid for this API: all its requests fit in inbuf.
+                if self.filled == self.inbuf.len() {
+                    return Next::Close;
+                }
+                Next::Recv
+            }
+            Handled::Responded { consumed } => {
+                self.inbuf.copy_within(consumed..self.filled, 0);
+                self.filled -= consumed;
+                Next::Send
+            }
+            Handled::Close => Next::Close,
+        }
+    }
+}
+
+pub enum Next {
+    Recv,
+    Send,
+    Close,
+}
+
+const NONE: u32 = u32::MAX;
+
+enum Entry {
+    Vacant(u32),
+    Occupied(Conn),
+}
+
+pub struct Slab {
+    entries: Vec<Entry>,
+    curr_top: u32,
+}
+
+impl Slab {
+    pub fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+            curr_top: NONE,
+        }
+    }
+
+    pub fn insert(&mut self, conn: Conn) -> u32 {
+        if self.curr_top == NONE {
+            self.entries.push(Entry::Occupied(conn));
+            return (self.entries.len() - 1) as u32;
+        }
+
+        let slot = self.curr_top;
+        let prev = mem::replace(&mut self.entries[slot as usize], Entry::Occupied(conn));
+        self.curr_top = match prev {
+            Entry::Vacant(next) => next,
+            Entry::Occupied(_) => unreachable!("free list points at an occupied slot"),
+        };
+        slot
+    }
+
+    pub fn get_mut(&mut self, slot: u32) -> &mut Conn {
+        match &mut self.entries[slot as usize] {
+            Entry::Occupied(conn) => conn,
+            Entry::Vacant(_) => panic!("slot {slot} is empty"),
+        }
+    }
+
+    pub fn remove(&mut self, slot: u32) {
+        let entry = &mut self.entries[slot as usize];
+        if let Entry::Vacant(_) = entry {
+            panic!("slot {slot} removed twice");
+        }
+        *entry = Entry::Vacant(self.curr_top);
+        self.curr_top = slot;
+    }
+}
