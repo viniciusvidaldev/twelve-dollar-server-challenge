@@ -3,6 +3,7 @@ use std::{io, net::TcpListener};
 use crate::{server::Server, uring::IoUring};
 
 mod app;
+mod http;
 mod mmap;
 mod server;
 mod sys;
