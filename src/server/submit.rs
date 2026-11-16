@@ -1,4 +1,4 @@
-use std::{io, os::fd::AsRawFd};
+use std::os::fd::AsRawFd;
 
 use crate::{
     server::{Server, token::Token},
@@ -6,7 +6,7 @@ use crate::{
 };
 
 impl Server {
-    pub(super) fn submit_accept(&mut self) -> io::Result<()> {
+    pub(super) fn submit_accept(&mut self) {
         let op = Op::Accept {
             fd: self.listener.as_raw_fd(),
         };
@@ -14,7 +14,7 @@ impl Server {
         self.push(entry)
     }
 
-    pub(super) fn submit_recv(&mut self, slot: u32) -> io::Result<()> {
+    pub(super) fn submit_recv(&mut self, slot: u32) {
         let conn = self.conns.get_mut(slot);
         let fd = conn.fd();
         let buf = conn.recv_buf();
@@ -27,7 +27,7 @@ impl Server {
         self.push(entry)
     }
 
-    pub(super) fn submit_send(&mut self, slot: u32) -> io::Result<()> {
+    pub(super) fn submit_send(&mut self, slot: u32) {
         let conn = self.conns.get_mut(slot);
         let fd = conn.fd();
         let buf = conn.unsent();
@@ -40,7 +40,7 @@ impl Server {
         self.push(entry)
     }
 
-    pub(super) fn submit_close(&mut self, slot: u32) -> io::Result<()> {
+    pub(super) fn submit_close(&mut self, slot: u32) {
         let conn = self.conns.get_mut(slot);
         let fd = conn.fd();
         let op = Op::Close { fd };
@@ -48,12 +48,15 @@ impl Server {
         self.push(entry)
     }
 
-    fn push(&mut self, mut entry: Entry<Tagged>) -> io::Result<()> {
+    fn push(&mut self, mut entry: Entry<Tagged>) {
         loop {
             match unsafe { self.ring.push(entry) } {
-                Ok(_) => return Ok(()),
+                Ok(_) => return,
                 Err(SqFull(back)) => {
-                    self.ring.submit_and_wait(0)?;
+                    // The SQ is ours and the fd is valid; enter failing here is unrecoverable.
+                    self.ring
+                        .submit_and_wait(0)
+                        .expect("io_uring_enter failed while flushing a full SQ");
                     entry = back;
                 }
             }

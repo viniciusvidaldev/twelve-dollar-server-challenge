@@ -1,4 +1,4 @@
-use std::{mem, os::fd::RawFd};
+use std::{io, mem, os::fd::RawFd};
 
 use crate::app::{App, Handled};
 
@@ -33,12 +33,19 @@ impl Conn {
         &self.out[self.sent..]
     }
 
-    pub fn after_recv(&mut self, n: usize, app: &mut App) -> Next {
+    pub fn after_recv(&mut self, res: io::Result<usize>, app: &mut App) -> Next {
+        let n = match res {
+            Ok(0) | Err(_) => return Next::Close,
+            Ok(n) => n,
+        };
         self.filled += n;
         self.process(app)
     }
 
-    pub fn after_send(&mut self, n: usize, app: &mut App) -> Next {
+    pub fn after_send(&mut self, res: io::Result<usize>, app: &mut App) -> Next {
+        let Ok(n) = res else {
+            return Next::Close;
+        };
         self.sent += n;
         if self.sent < self.out.len() {
             return Next::Send;
