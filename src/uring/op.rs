@@ -1,55 +1,42 @@
 use std::{marker::PhantomData, os::fd::RawFd};
 
-use crate::sys::{IORING_OP_NOP, IORING_OP_READ, IORING_OP_WRITE, io_uring_sqe};
-
-const NO_OFFSET: u64 = u64::MAX;
+use crate::sys::io_uring;
 
 pub enum Op {
     Nop,
-    Read {
-        fd: RawFd,
-        buf: *mut u8,
-        len: u32,
-        offset: Option<u64>,
-    },
-    Write {
-        fd: RawFd,
-        buf: *const u8,
-        len: u32,
-        offset: Option<u64>,
-    },
+    Accept { fd: RawFd },
+    Recv { fd: RawFd, buf: *mut u8, len: u32 },
+    Send { fd: RawFd, buf: *const u8, len: u32 },
+    Close { fd: RawFd },
 }
 
 impl Op {
     pub fn encode(&self) -> Entry<Untagged> {
-        let mut sqe = io_uring_sqe::default();
+        let mut sqe = io_uring::io_uring_sqe::default();
         match *self {
             Self::Nop => {
-                sqe.opcode = IORING_OP_NOP;
+                sqe.opcode = io_uring::IORING_OP_NOP;
+                sqe.fd = -1;
             }
-            Self::Read {
-                fd,
-                buf,
-                len,
-                offset,
-            } => {
-                sqe.opcode = IORING_OP_READ;
+            Self::Accept { fd } => {
+                sqe.opcode = io_uring::IORING_OP_ACCEPT;
+                sqe.fd = fd;
+            }
+            Self::Recv { fd, buf, len } => {
+                sqe.opcode = io_uring::IORING_OP_RECV;
                 sqe.fd = fd;
                 sqe.addr_or_splice_off_in.addr = buf as u64;
                 sqe.len = len;
-                sqe.off_or_addr2.off = offset.unwrap_or(NO_OFFSET);
             }
-            Self::Write {
-                fd,
-                buf,
-                len,
-                offset,
-            } => {
-                sqe.opcode = IORING_OP_WRITE;
+            Self::Send { fd, buf, len } => {
+                sqe.opcode = io_uring::IORING_OP_SEND;
                 sqe.fd = fd;
                 sqe.addr_or_splice_off_in.addr = buf as u64;
                 sqe.len = len;
-                sqe.off_or_addr2.off = offset.unwrap_or(NO_OFFSET);
+            }
+            Self::Close { fd } => {
+                sqe.opcode = io_uring::IORING_OP_CLOSE;
+                sqe.fd = fd;
             }
         }
         Entry {
@@ -66,7 +53,7 @@ pub struct Untagged;
 
 #[must_use]
 pub struct Entry<T> {
-    pub(crate) sqe: io_uring_sqe,
+    pub(crate) sqe: io_uring::io_uring_sqe,
     _state: PhantomData<T>,
 }
 

@@ -138,8 +138,10 @@ pub const IORING_ENTER_GETEVENTS: u32 = 1 << 0;
 pub const IORING_SETUP_NO_SQARRAY: u32 = 1 << 16;
 
 pub const IORING_OP_NOP: u8 = 0;
-pub const IORING_OP_READ: u8 = 22;
-pub const IORING_OP_WRITE: u8 = 23;
+pub const IORING_OP_ACCEPT: u8 = 13;
+pub const IORING_OP_CLOSE: u8 = 19;
+pub const IORING_OP_SEND: u8 = 26;
+pub const IORING_OP_RECV: u8 = 27;
 
 pub unsafe fn io_uring_setup(entries: u32, p: *mut io_uring_params) -> c_int {
     unsafe { syscall(SYS_IO_URING_SETUP, entries as c_long, p) as c_int }
