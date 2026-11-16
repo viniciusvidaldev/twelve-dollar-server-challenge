@@ -1,3 +1,4 @@
+mod mmap;
 mod sys;
 
 fn main() {
