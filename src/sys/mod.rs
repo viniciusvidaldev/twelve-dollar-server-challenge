@@ -1,5 +1,6 @@
 pub mod io_uring;
 pub mod mmap;
+pub mod sqlite;
 
 use std::{
     ffi::{c_int, c_long},

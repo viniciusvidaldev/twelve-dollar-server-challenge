@@ -21,12 +21,12 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(ring: IoUring, listener: TcpListener) -> Self {
+    pub fn new(ring: IoUring, listener: TcpListener, app: App) -> Self {
         Self {
             listener,
             ring,
             conns: Slab::new(),
-            app: App::new(),
+            app,
         }
     }
 

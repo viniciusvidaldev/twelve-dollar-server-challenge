@@ -1,4 +1,7 @@
-use crate::http::{self, Method, Parse};
+use crate::{
+    db::Db,
+    http::{self, Method, Parse},
+};
 
 pub enum Handled {
     NeedMore,
@@ -6,11 +9,13 @@ pub enum Handled {
     Close,
 }
 
-pub struct App;
+pub struct App {
+    db: Db,
+}
 
 impl App {
-    pub fn new() -> Self {
-        Self
+    pub fn new(db: Db) -> Self {
+        Self { db }
     }
 
     pub fn handle(&mut self, input: &[u8], out: &mut Vec<u8>) -> Handled {
