@@ -1,3 +1,4 @@
+mod auth;
 mod ids;
 
 pub use ids::{PostId, UserId};
