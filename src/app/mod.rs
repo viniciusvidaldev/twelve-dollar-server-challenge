@@ -1,11 +1,23 @@
 mod auth;
+mod error;
+mod handlers;
 mod ids;
+mod response;
+mod route;
 
+use std::time::Instant;
+
+pub use auth::Auth;
 pub use ids::{PostId, UserId};
 
 use crate::{
+    app::{
+        error::{ApiError, ErrorBody},
+        response::Response,
+        route::Route,
+    },
     db::Db,
-    http::{self, Method, Parse},
+    http::{self, Parse, Request},
 };
 
 pub enum Handled {
@@ -14,13 +26,34 @@ pub enum Handled {
     Close,
 }
 
+pub struct State {
+    pub db: Db,
+    pub auth: Auth,
+    pub started: Instant,
+}
+
+pub struct Ctx<'a> {
+    pub state: &'a mut State,
+    pub req: &'a Request<'a>,
+    pub res: &'a mut Response,
+}
+
 pub struct App {
-    db: Db,
+    state: State,
+    res: Response,
 }
 
 impl App {
-    pub fn new(db: Db) -> Self {
-        Self { db }
+    pub fn new(db: Db, auth: Auth) -> Self {
+        let state = State {
+            db,
+            auth,
+            started: Instant::now(),
+        };
+        Self {
+            state,
+            res: Response::new(),
+        }
     }
 
     pub fn handle(&mut self, input: &[u8], out: &mut Vec<u8>) -> Handled {
@@ -30,26 +63,31 @@ impl App {
             Parse::Done(req) => req,
         };
 
-        match (req.method, req.path) {
-            (Method::Get, b"/") => respond(out, 200, b"ok\n"),
-            _ => respond(out, 404, b""),
+        self.res.reset();
+        let mut ctx = Ctx {
+            state: &mut self.state,
+            req: &req,
+            res: &mut self.res,
+        };
+
+        let result = match Route::parse(req.method, req.path) {
+            Route::Health => handlers::health(&mut ctx),
+            Route::Feed => handlers::feed(&mut ctx),
+            Route::GetPost(id) => handlers::get_post(&mut ctx, id),
+            Route::CreatePost => handlers::create_post(&mut ctx),
+            Route::LikePost(id) => handlers::like_post(&mut ctx, id),
+            Route::NotFound => Err(ApiError::NOT_FOUND),
+        };
+
+        let res = &mut self.res;
+        if let Err(e) = result {
+            res.reset();
+            res.status = e.status;
+            let body = ErrorBody { error: e.message };
+            let _ = serde_json::to_writer(&mut res.body, &body);
         }
+        res.write_to(out);
 
         Handled::Responded { consumed: req.len }
     }
-}
-
-fn respond(out: &mut Vec<u8>, status: u16, body: &[u8]) {
-    use std::io::Write;
-    let reason = match status {
-        200 => "OK",
-        404 => "Not Found",
-        _ => "",
-    };
-    let _ = write!(
-        out,
-        "HTTP/1.1 {status} {reason}\r\nContent-Length: {}\r\n\r\n",
-        body.len()
-    );
-    out.extend_from_slice(body);
 }
