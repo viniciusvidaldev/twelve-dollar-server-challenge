@@ -4,7 +4,7 @@ mod posts;
 
 pub use health::Health;
 pub use likes::Likes;
-pub use posts::{Created, CreatedRows, Post, PostRows, Posts};
+pub use posts::{Post, Posts};
 
 use super::{conn::Connection, error::Error};
 

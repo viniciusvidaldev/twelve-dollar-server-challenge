@@ -27,7 +27,8 @@ mod feed {
 }
 
 mod insert {
-    pub const SQL: &str = "INSERT INTO posts (user_id, body) VALUES (?1, ?2) RETURNING id, created_at";
+    pub const SQL: &str =
+        "INSERT INTO posts (user_id, body) VALUES (?1, ?2) RETURNING id, created_at";
     pub const USER_ID: i32 = 1;
     pub const BODY: i32 = 2;
 
@@ -116,7 +117,11 @@ impl Posts {
         }
     }
 
-    pub fn insert<'q>(&'q mut self, user: UserId, body: &'q [u8]) -> Result<CreatedRows<'q>, Error> {
+    pub fn insert<'q>(
+        &'q mut self,
+        user: UserId,
+        body: &'q [u8],
+    ) -> Result<CreatedRows<'q>, Error> {
         let mut query = self.insert.query();
         query.bind_i64(insert::USER_ID, user.get())?;
         query.bind_text(insert::BODY, body)?;

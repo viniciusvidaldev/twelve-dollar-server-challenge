@@ -6,12 +6,12 @@ mod stmt;
 use std::ffi::CStr;
 
 pub use error::Error;
-pub use queries::{Created, CreatedRows, Health, Insert, Likes, Next, Post, PostRows, Posts};
+pub use queries::{Health, Insert, Likes, Next, Post, Posts};
 
 use crate::db::{conn::Connection, queries::Stmts};
 
 pub struct Db {
-    // fields drop in declaration order: stmts must be finalized before conn closes
+    // stmts must be finalized before conn closes
     stmts: Stmts,
     _conn: Connection,
 }
