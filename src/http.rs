@@ -21,6 +21,7 @@ impl Method {
 pub struct Request<'a> {
     pub method: Method,
     pub path: &'a [u8],
+    pub authorization: Option<&'a [u8]>,
     pub body: &'a [u8],
     pub len: usize,
 }
@@ -59,6 +60,7 @@ pub fn parse(input: &[u8]) -> Parse<'_> {
     };
 
     let mut content_length = 0;
+    let mut authorization = None;
     for line in lines {
         let Some(colon) = line.iter().position(|&b| b == b':') else {
             return Parse::Invalid;
@@ -70,6 +72,8 @@ pub fn parse(input: &[u8]) -> Parse<'_> {
                 return Parse::Invalid;
             };
             content_length = n;
+        } else if name.eq_ignore_ascii_case(b"authorization") {
+            authorization = Some(value);
         }
     }
     let body_start = head_end + 4;
@@ -81,6 +85,7 @@ pub fn parse(input: &[u8]) -> Parse<'_> {
     Parse::Done(Request {
         method,
         path: uri,
+        authorization,
         body: &input[body_start..len],
         len,
     })
