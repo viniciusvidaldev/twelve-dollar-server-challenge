@@ -16,8 +16,6 @@ fn main() -> io::Result<()> {
     let path = CString::new(path).expect("SQLITE_PATH contains a nul byte");
 
     let db = Db::open(&path)?;
-    db.exec(c"PRAGMA journal_mode=WAL;")?;
-    db.exec(c"PRAGMA synchronous=NORMAL;")?;
 
     let app = App::new(db);
     let listener = TcpListener::bind("0.0.0.0:8080")?;

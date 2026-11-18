@@ -1,3 +1,7 @@
+mod ids;
+
+pub use ids::{PostId, UserId};
+
 use crate::{
     db::Db,
     http::{self, Method, Parse},
