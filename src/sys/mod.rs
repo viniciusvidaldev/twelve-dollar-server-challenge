@@ -1,5 +1,6 @@
 pub mod io_uring;
 pub mod mmap;
+pub mod resource;
 pub mod sqlite;
 
 use std::{

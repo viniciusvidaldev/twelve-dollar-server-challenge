@@ -201,3 +201,12 @@ pub unsafe fn io_uring_enter(
         ) as c_int
     }
 }
+
+pub unsafe fn io_uring_register(
+    fd: c_int,
+    opcode: c_uint,
+    arg: *const c_void,
+    nr_args: c_uint,
+) -> c_int {
+    unsafe { syscall(SYS_IO_URING_REGISTER, fd, opcode, arg, nr_args) as c_int }
+}

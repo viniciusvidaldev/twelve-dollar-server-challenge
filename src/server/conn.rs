@@ -1,19 +1,24 @@
-use std::{io, mem, os::fd::RawFd};
+use std::{io, mem};
 
-use crate::app::{App, Handled};
+use crate::{
+    app::{App, Handled},
+    uring::FixedFile,
+};
 
 pub struct Conn {
-    fd: RawFd,
+    file: FixedFile,
+    // Fixed size so its address stays put while a recv is in flight.
     inbuf: Box<[u8]>,
     filled: usize,
+    // Only mutated while no send is in flight; the kernel reads it until the send completes.
     out: Vec<u8>,
     sent: usize,
 }
 
 impl Conn {
-    pub fn new(fd: RawFd) -> Self {
+    pub fn new(file: FixedFile) -> Self {
         Self {
-            fd,
+            file,
             inbuf: vec![0u8; 4096].into_boxed_slice(),
             filled: 0,
             out: Vec::with_capacity(4096),
@@ -21,8 +26,8 @@ impl Conn {
         }
     }
 
-    pub fn fd(&self) -> RawFd {
-        self.fd
+    pub fn file(&self) -> FixedFile {
+        self.file
     }
 
     pub fn recv_buf(&mut self) -> &mut [u8] {

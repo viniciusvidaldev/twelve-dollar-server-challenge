@@ -16,10 +16,10 @@ impl Server {
 
     pub(super) fn submit_recv(&mut self, slot: u32) {
         let conn = self.conns.get_mut(slot);
-        let fd = conn.fd();
+        let file = conn.file();
         let buf = conn.recv_buf();
         let op = Op::Recv {
-            fd,
+            file,
             buf: buf.as_mut_ptr(),
             len: buf.len() as u32,
         };
@@ -29,10 +29,10 @@ impl Server {
 
     pub(super) fn submit_send(&mut self, slot: u32) {
         let conn = self.conns.get_mut(slot);
-        let fd = conn.fd();
+        let file = conn.file();
         let buf = conn.unsent();
         let op = Op::Send {
-            fd,
+            file,
             buf: buf.as_ptr(),
             len: buf.len() as u32,
         };
@@ -42,8 +42,8 @@ impl Server {
 
     pub(super) fn submit_close(&mut self, slot: u32) {
         let conn = self.conns.get_mut(slot);
-        let fd = conn.fd();
-        let op = Op::Close { fd };
+        let file = conn.file();
+        let op = Op::Close { file };
         let entry = op.encode().user_data(Token::Close(slot).pack());
         self.push(entry)
     }

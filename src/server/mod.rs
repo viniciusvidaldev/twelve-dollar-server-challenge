@@ -11,7 +11,7 @@ use crate::{
         token::Token,
     },
     sys::io_uring,
-    uring::IoUring,
+    uring::{FixedFile, IoUring},
 };
 
 pub struct Server {
@@ -54,8 +54,9 @@ impl Server {
         const EMFILE: i32 = 24;
 
         match c.result() {
-            Ok(fd) => {
-                let slot = self.conns.insert(Conn::new(fd as i32));
+            Ok(res) => {
+                let file = FixedFile::from_accept(res as u32);
+                let slot = self.conns.insert(Conn::new(file));
                 self.submit_recv(slot);
             }
             Err(e) if matches!(e.raw_os_error(), Some(EMFILE | ENFILE)) => {

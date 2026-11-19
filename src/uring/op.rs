@@ -2,12 +2,41 @@ use std::{marker::PhantomData, os::fd::RawFd};
 
 use crate::sys::io_uring;
 
+#[derive(Clone, Copy)]
+pub struct FixedFile(u32);
+
+impl FixedFile {
+    pub fn from_accept(res: u32) -> Self {
+        Self(res)
+    }
+
+    pub fn index(self) -> i32 {
+        self.0 as i32
+    }
+
+    pub fn close_index(self) -> u32 {
+        self.0 + 1
+    }
+}
+
 pub enum Op {
     Nop,
-    Accept { fd: RawFd },
-    Recv { fd: RawFd, buf: *mut u8, len: u32 },
-    Send { fd: RawFd, buf: *const u8, len: u32 },
-    Close { fd: RawFd },
+    Accept {
+        fd: RawFd,
+    },
+    Recv {
+        file: FixedFile,
+        buf: *mut u8,
+        len: u32,
+    },
+    Send {
+        file: FixedFile,
+        buf: *const u8,
+        len: u32,
+    },
+    Close {
+        file: FixedFile,
+    },
 }
 
 impl Op {
@@ -22,22 +51,26 @@ impl Op {
                 sqe.opcode = io_uring::IORING_OP_ACCEPT;
                 sqe.fd = fd;
                 sqe.ioprio = io_uring::IORING_ACCEPT_MULTISHOT;
+                sqe.splice_fd_in_or_file_index.file_index = io_uring::IORING_FILE_INDEX_ALLOC;
             }
-            Self::Recv { fd, buf, len } => {
+            Self::Recv { file, buf, len } => {
                 sqe.opcode = io_uring::IORING_OP_RECV;
-                sqe.fd = fd;
+                sqe.fd = file.index();
+                sqe.flags |= io_uring::IOSQE_FIXED_FILE;
                 sqe.addr_or_splice_off_in.addr = buf as u64;
                 sqe.len = len;
             }
-            Self::Send { fd, buf, len } => {
+            Self::Send { file, buf, len } => {
                 sqe.opcode = io_uring::IORING_OP_SEND;
-                sqe.fd = fd;
+                sqe.fd = file.index();
+                sqe.flags |= io_uring::IOSQE_FIXED_FILE;
                 sqe.addr_or_splice_off_in.addr = buf as u64;
                 sqe.len = len;
             }
-            Self::Close { fd } => {
+            Self::Close { file } => {
                 sqe.opcode = io_uring::IORING_OP_CLOSE;
-                sqe.fd = fd;
+                sqe.fd = 0;
+                sqe.splice_fd_in_or_file_index.file_index = file.close_index();
             }
         }
         Entry {

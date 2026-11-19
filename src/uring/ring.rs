@@ -161,6 +161,26 @@ impl IoUring {
         self.cq.local_head = self.cq.local_head.wrapping_add(1);
         Some(cqe)
     }
+
+    pub fn register_files_sparse(&self, nr: u32) -> io::Result<()> {
+        let reg = io_uring::io_uring_rsrc_register {
+            nr,
+            flags: io_uring::IORING_RSRC_REGISTER_SPARSE,
+            resv2: 0,
+            data: 0,
+            tags: 0,
+        };
+
+        cvt(unsafe {
+            io_uring::io_uring_register(
+                self.fd.as_raw_fd(),
+                io_uring::IORING_REGISTER_FILES2,
+                (&raw const reg).cast(),
+                size_of::<io_uring::io_uring_rsrc_register>() as u32,
+            )
+        })?;
+        Ok(())
+    }
 }
 
 struct SubmissionQueue {
