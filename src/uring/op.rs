@@ -21,6 +21,7 @@ impl Op {
             Self::Accept { fd } => {
                 sqe.opcode = io_uring::IORING_OP_ACCEPT;
                 sqe.fd = fd;
+                sqe.ioprio = io_uring::IORING_ACCEPT_MULTISHOT;
             }
             Self::Recv { fd, buf, len } => {
                 sqe.opcode = io_uring::IORING_OP_RECV;

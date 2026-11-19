@@ -1,4 +1,4 @@
-use std::ffi::{c_int, c_long, c_void};
+use std::ffi::{c_int, c_long, c_uint, c_void};
 
 use crate::sys::syscall;
 
@@ -127,21 +127,55 @@ const _: () = assert!(size_of::<io_uring_params>() == 120);
 const _: () = assert!(size_of::<io_uring_sqe>() == 64);
 const _: () = assert!(size_of::<io_uring_cqe>() == 16);
 
+// syscalls
 pub const SYS_IO_URING_SETUP: c_long = 425;
 pub const SYS_IO_URING_ENTER: c_long = 426;
+pub const SYS_IO_URING_REGISTER: c_long = 427;
 
+// io_uring_setup flags
+pub const IORING_SETUP_NO_SQARRAY: u32 = 1 << 16;
+
+// io_uring_params.features
+pub const IORING_FEAT_SINGLE_MMAP: u32 = 1 << 0;
+
+// mmap offsets
 pub const IORING_OFF_SQ_RING: i64 = 0;
 pub const IORING_OFF_SQES: i64 = 0x10000000;
 
-pub const IORING_FEAT_SINGLE_MMAP: u32 = 1 << 0;
+// io_uring_enter flags
 pub const IORING_ENTER_GETEVENTS: u32 = 1 << 0;
-pub const IORING_SETUP_NO_SQARRAY: u32 = 1 << 16;
 
+// io_uring_register opcodes and flags
+pub const IORING_REGISTER_FILES2: c_uint = 13;
+pub const IORING_RSRC_REGISTER_SPARSE: u32 = 1 << 0;
+
+// sqe.opcode
 pub const IORING_OP_NOP: u8 = 0;
 pub const IORING_OP_ACCEPT: u8 = 13;
 pub const IORING_OP_CLOSE: u8 = 19;
 pub const IORING_OP_SEND: u8 = 26;
 pub const IORING_OP_RECV: u8 = 27;
+
+// sqe.flags
+pub const IOSQE_FIXED_FILE: u8 = 1 << 0;
+
+// sqe.ioprio for accept
+pub const IORING_ACCEPT_MULTISHOT: u16 = 1 << 0;
+
+// sqe.file_index
+pub const IORING_FILE_INDEX_ALLOC: u32 = u32::MAX;
+
+// cqe.flags
+pub const IORING_CQE_F_MORE: u32 = 1 << 1;
+
+#[repr(C)]
+pub struct io_uring_rsrc_register {
+    pub nr: u32,
+    pub flags: u32,
+    pub resv2: u64,
+    pub data: u64,
+    pub tags: u64,
+}
 
 pub unsafe fn io_uring_setup(entries: u32, p: *mut io_uring_params) -> c_int {
     unsafe { syscall(SYS_IO_URING_SETUP, entries as c_long, p) as c_int }

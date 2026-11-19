@@ -53,10 +53,9 @@ impl Server {
             match unsafe { self.ring.push(entry) } {
                 Ok(_) => return,
                 Err(SqFull(back)) => {
-                    // The SQ is ours and the fd is valid; enter failing here is unrecoverable.
-                    self.ring
-                        .submit_and_wait(0)
-                        .expect("io_uring_enter failed while flushing a full SQ");
+                    if let Err(e) = self.ring.submit_and_wait(0) {
+                        eprintln!("submit: {e}");
+                    }
                     entry = back;
                 }
             }
