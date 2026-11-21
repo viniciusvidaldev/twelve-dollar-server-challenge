@@ -109,7 +109,7 @@ impl IoUring {
             ..Default::default()
         };
 
-        self.register(io_uring::IORING_REGISTER_PBUF_RING, &reg)?;
+        self.register(io_uring::IORING_REGISTER_PBUF_RING, &reg, 1)?;
         self.bufs = Some(br);
         Ok(())
     }
@@ -203,13 +203,20 @@ impl IoUring {
             tags: 0,
         };
 
-        self.register(io_uring::IORING_REGISTER_FILES2, &reg)?;
+        // FILES2 takes the struct size as nr_args
+        let size = size_of::<io_uring::io_uring_rsrc_register>() as u32;
+        self.register(io_uring::IORING_REGISTER_FILES2, &reg, size)?;
         Ok(())
     }
 
-    fn register<T>(&self, opcode: u32, arg: &T) -> io::Result<()> {
+    fn register<T>(&self, opcode: u32, arg: &T, nr_args: u32) -> io::Result<()> {
         let ret = unsafe {
-            io_uring::io_uring_register(self.fd.as_raw_fd(), opcode, (arg as *const T).cast(), 1)
+            io_uring::io_uring_register(
+                self.fd.as_raw_fd(),
+                opcode,
+                (arg as *const T).cast(),
+                nr_args,
+            )
         };
         if ret < 0 {
             return Err(io::Error::last_os_error());
