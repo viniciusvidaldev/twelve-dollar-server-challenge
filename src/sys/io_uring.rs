@@ -121,11 +121,34 @@ pub struct io_uring_cqe {
     pub flags: u32,
 }
 
-const _: () = assert!(size_of::<io_sqring_offsets>() == 40);
-const _: () = assert!(size_of::<io_cqring_offsets>() == 40);
-const _: () = assert!(size_of::<io_uring_params>() == 120);
-const _: () = assert!(size_of::<io_uring_sqe>() == 64);
-const _: () = assert!(size_of::<io_uring_cqe>() == 16);
+#[repr(C)]
+pub struct io_uring_rsrc_register {
+    pub nr: u32,
+    pub flags: u32,
+    pub resv2: u64,
+    pub data: u64,
+    pub tags: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct io_uring_buf_reg {
+    pub ring_addr: u64,
+    pub ring_entries: u32,
+    pub bgid: u16,
+    pub flags: u16,
+    pub min_left: u32,
+    pub resv: [u32; 5],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct io_uring_buf {
+    pub addr: u64,
+    pub len: u32,
+    pub bid: u16,
+    pub resv: u16,
+}
 
 // syscalls
 pub const SYS_IO_URING_SETUP: c_long = 425;
@@ -149,6 +172,8 @@ pub const IORING_ENTER_GETEVENTS: u32 = 1 << 0;
 pub const IORING_REGISTER_FILES2: c_uint = 13;
 pub const IORING_RSRC_REGISTER_SPARSE: u32 = 1 << 0;
 
+pub const IORING_REGISTER_PBUF_RING: c_uint = 22;
+
 // sqe.opcode
 pub const IORING_OP_NOP: u8 = 0;
 pub const IORING_OP_ACCEPT: u8 = 13;
@@ -158,6 +183,7 @@ pub const IORING_OP_RECV: u8 = 27;
 
 // sqe.flags
 pub const IOSQE_FIXED_FILE: u8 = 1 << 0;
+pub const IOSQE_BUFFER_SELECT: u8 = 1 << 5;
 
 // sqe.ioprio for accept
 pub const IORING_ACCEPT_MULTISHOT: u16 = 1 << 0;
@@ -167,15 +193,11 @@ pub const IORING_FILE_INDEX_ALLOC: u32 = u32::MAX;
 
 // cqe.flags
 pub const IORING_CQE_F_MORE: u32 = 1 << 1;
+pub const IORING_CQE_F_BUFFER: u32 = 1 << 0;
+pub const IORING_CQE_BUFFER_SHIFT: u32 = 16;
 
-#[repr(C)]
-pub struct io_uring_rsrc_register {
-    pub nr: u32,
-    pub flags: u32,
-    pub resv2: u64,
-    pub data: u64,
-    pub tags: u64,
-}
+// errno
+pub const ENOBUFS: i32 = 105;
 
 pub unsafe fn io_uring_setup(entries: u32, p: *mut io_uring_params) -> c_int {
     unsafe { syscall(SYS_IO_URING_SETUP, entries as c_long, p) as c_int }

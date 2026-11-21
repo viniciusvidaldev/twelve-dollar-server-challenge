@@ -6,8 +6,8 @@ use std::{
 };
 
 use super::op::{Entry, Tagged};
-use crate::mmap::Mmap;
 use crate::sys::{cvt, io_uring};
+use crate::{mmap::Mmap, uring::buf_ring::BufRing};
 
 pub struct IoUring {
     fd: OwnedFd,
@@ -15,6 +15,7 @@ pub struct IoUring {
     _sqe_map: Mmap,
     sq: SubmissionQueue,
     cq: CompletionQueue,
+    bufs: Option<BufRing>,
 }
 
 pub struct SqFull(pub Entry<Tagged>);
@@ -78,8 +79,39 @@ impl IoUring {
             _sqe_map: sqe_map,
             sq,
             cq,
+            bufs: None,
         };
         Ok(s)
+    }
+
+    pub fn bufs(&self) -> &BufRing {
+        self.bufs.as_ref().expect("buf ring not registered")
+    }
+
+    pub fn bufs_mut(&mut self) -> &mut BufRing {
+        self.bufs.as_mut().expect("buf ring not registered")
+    }
+
+    pub fn setup_buf_ring(&mut self, entries: u16, buf_size: u32) -> io::Result<()> {
+        if self.bufs.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "buf ring already registered",
+            ));
+        }
+
+        let br = BufRing::new(entries, buf_size)?;
+
+        let reg = io_uring::io_uring_buf_reg {
+            ring_addr: br.ring_addr(),
+            ring_entries: br.entries() as u32,
+            bgid: BufRing::BGID,
+            ..Default::default()
+        };
+
+        self.register(io_uring::IORING_REGISTER_PBUF_RING, &reg)?;
+        self.bufs = Some(br);
+        Ok(())
     }
 
     /// Refreshes `cached_head` only when the cached view looks full.
@@ -171,14 +203,17 @@ impl IoUring {
             tags: 0,
         };
 
-        cvt(unsafe {
-            io_uring::io_uring_register(
-                self.fd.as_raw_fd(),
-                io_uring::IORING_REGISTER_FILES2,
-                (&raw const reg).cast(),
-                size_of::<io_uring::io_uring_rsrc_register>() as u32,
-            )
-        })?;
+        self.register(io_uring::IORING_REGISTER_FILES2, &reg)?;
+        Ok(())
+    }
+
+    fn register<T>(&self, opcode: u32, arg: &T) -> io::Result<()> {
+        let ret = unsafe {
+            io_uring::io_uring_register(self.fd.as_raw_fd(), opcode, (arg as *const T).cast(), 1)
+        };
+        if ret < 0 {
+            return Err(io::Error::last_os_error());
+        }
         Ok(())
     }
 }

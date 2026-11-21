@@ -15,13 +15,10 @@ impl Server {
     }
 
     pub(super) fn submit_recv(&mut self, slot: u32) {
-        let conn = self.conns.get_mut(slot);
-        let file = conn.file();
-        let buf = conn.recv_buf();
+        let file = self.conns.get_mut(slot).file();
         let op = Op::Recv {
             file,
-            buf: buf.as_mut_ptr(),
-            len: buf.len() as u32,
+            len: self.ring.bufs().buf_size(),
         };
         let entry = op.encode().user_data(Token::Recv(slot).pack());
         self.push(entry)

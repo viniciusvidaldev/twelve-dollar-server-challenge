@@ -1,26 +1,32 @@
-use std::{io, mem};
+use std::mem;
 
 use crate::{
     app::{App, Handled},
     uring::FixedFile,
 };
 
+// a client that never completes a request would otherwise grow partial forever
+const MAX_PARTIAL: usize = 4096;
+
 pub struct Conn {
     file: FixedFile,
-    // Fixed size so its address stays put while a recv is in flight.
-    inbuf: Box<[u8]>,
-    filled: usize,
-    // Only mutated while no send is in flight; the kernel reads it until the send completes.
+    // tail of an incomplete request; empty and unallocated between requests
+    partial: Vec<u8>,
+    // the kernel reads this until the send completes, so never touch it while one is in flight
     out: Vec<u8>,
     sent: usize,
+}
+
+enum Drained {
+    Consumed(usize),
+    Close,
 }
 
 impl Conn {
     pub fn new(file: FixedFile) -> Self {
         Self {
             file,
-            inbuf: vec![0u8; 4096].into_boxed_slice(),
-            filled: 0,
+            partial: Vec::new(),
             out: Vec::with_capacity(4096),
             sent: 0,
         }
@@ -30,55 +36,59 @@ impl Conn {
         self.file
     }
 
-    pub fn recv_buf(&mut self) -> &mut [u8] {
-        &mut self.inbuf[self.filled..]
-    }
-
     pub fn unsent(&self) -> &[u8] {
         &self.out[self.sent..]
     }
 
-    pub fn after_recv(&mut self, res: io::Result<usize>, app: &mut App) -> Next {
-        let n = match res {
-            Ok(0) | Err(_) => return Next::Close,
-            Ok(n) => n,
-        };
-        self.filled += n;
-        self.process(app)
+    pub fn after_recv(&mut self, data: &[u8], app: &mut App) -> Next {
+        if self.partial.is_empty() {
+            let drained = drain(data, &mut self.out, app);
+            let Drained::Consumed(n) = drained else {
+                return Next::Close;
+            };
+            self.partial.extend_from_slice(&data[n..]);
+        } else {
+            self.partial.extend_from_slice(data);
+            let drained = drain(&self.partial, &mut self.out, app);
+            let Drained::Consumed(n) = drained else {
+                return Next::Close;
+            };
+            self.partial.drain(..n);
+        }
+
+        if self.partial.len() > MAX_PARTIAL {
+            return Next::Close;
+        }
+        if self.partial.is_empty() {
+            self.partial = Vec::new();
+        }
+        // send before recv, the client may be blocked waiting on response
+        if !self.out.is_empty() {
+            return Next::Send;
+        }
+        Next::Recv
     }
 
-    pub fn after_send(&mut self, res: io::Result<usize>, app: &mut App) -> Next {
-        let Ok(n) = res else {
-            return Next::Close;
-        };
+    pub fn after_send(&mut self, n: usize) -> Next {
         self.sent += n;
         if self.sent < self.out.len() {
             return Next::Send;
         }
         self.out.clear();
         self.sent = 0;
-        self.process(app)
-    }
-
-    fn process(&mut self, app: &mut App) -> Next {
-        let mut start = 0;
-        loop {
-            match app.handle(&self.inbuf[start..self.filled], &mut self.out) {
-                Handled::Responded { consumed } => start += consumed,
-                Handled::NeedMore => break,
-                Handled::Close => return Next::Close,
-            }
-        }
-        self.inbuf.copy_within(start..self.filled, 0);
-        self.filled -= start;
-        if !self.out.is_empty() {
-            return Next::Send;
-        }
-        // Only valid for this API: all its requests fit in inbuf.
-        if self.filled == self.inbuf.len() {
-            return Next::Close;
-        }
         Next::Recv
+    }
+}
+
+fn drain(data: &[u8], out: &mut Vec<u8>, app: &mut App) -> Drained {
+    let mut start = 0;
+    // one recv can carry several pipelined requests
+    loop {
+        match app.handle(&data[start..], out) {
+            Handled::Responded { consumed } => start += consumed,
+            Handled::NeedMore => return Drained::Consumed(start),
+            Handled::Close => return Drained::Close,
+        }
     }
 }
 

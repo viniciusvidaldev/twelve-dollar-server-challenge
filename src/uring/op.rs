@@ -1,6 +1,6 @@
 use std::{marker::PhantomData, os::fd::RawFd};
 
-use crate::sys::io_uring;
+use crate::{sys::io_uring, uring::buf_ring::BufRing};
 
 #[derive(Clone, Copy)]
 pub struct FixedFile(u32);
@@ -26,7 +26,6 @@ pub enum Op {
     },
     Recv {
         file: FixedFile,
-        buf: *mut u8,
         len: u32,
     },
     Send {
@@ -53,12 +52,14 @@ impl Op {
                 sqe.ioprio = io_uring::IORING_ACCEPT_MULTISHOT;
                 sqe.splice_fd_in_or_file_index.file_index = io_uring::IORING_FILE_INDEX_ALLOC;
             }
-            Self::Recv { file, buf, len } => {
+            Self::Recv { file, len } => {
                 sqe.opcode = io_uring::IORING_OP_RECV;
                 sqe.fd = file.index();
                 sqe.flags |= io_uring::IOSQE_FIXED_FILE;
-                sqe.addr_or_splice_off_in.addr = buf as u64;
+                sqe.flags |= io_uring::IOSQE_BUFFER_SELECT;
+                sqe.addr_or_splice_off_in.addr = 0;
                 sqe.len = len;
+                sqe.buf_index_or_group.buf_group = BufRing::BGID;
             }
             Self::Send { file, buf, len } => {
                 sqe.opcode = io_uring::IORING_OP_SEND;

@@ -11,7 +11,7 @@ use crate::{
         token::Token,
     },
     sys::io_uring,
-    uring::{FixedFile, IoUring},
+    uring::{BufferId, FixedFile, IoUring},
 };
 
 pub struct Server {
@@ -38,8 +38,8 @@ impl Server {
         loop {
             self.ring.submit_and_wait(1)?;
             while let Some(cqe) = self.ring.next_cqe() {
-                let c = Completion::new(&cqe);
-                match Token::unpack(cqe.user_data) {
+                let c = Completion::new(cqe);
+                match c.token() {
                     Token::Accept => self.on_accept(c),
                     Token::Recv(slot) => self.on_recv(slot, c),
                     Token::Send(slot) => self.on_send(slot, c),
@@ -72,18 +72,29 @@ impl Server {
     }
 
     fn on_recv(&mut self, slot: u32, c: Completion) {
-        let next = self
-            .conns
-            .get_mut(slot)
-            .after_recv(c.result(), &mut self.app);
+        let next = match c.result() {
+            Ok(0) => Next::Close,
+            Ok(n) => 'recv: {
+                let Some(bid) = c.buffer_id() else {
+                    break 'recv Next::Close;
+                };
+
+                let data = self.ring.bufs().get(&bid, n);
+                let next = self.conns.get_mut(slot).after_recv(data, &mut self.app);
+                self.ring.bufs_mut().recycle(bid);
+                next
+            }
+            Err(e) if e.raw_os_error() == Some(io_uring::ENOBUFS) => Next::Recv,
+            Err(_) => Next::Close,
+        };
         self.submit_next(slot, next);
     }
 
     fn on_send(&mut self, slot: u32, c: Completion) {
-        let next = self
-            .conns
-            .get_mut(slot)
-            .after_send(c.result(), &mut self.app);
+        let next = match c.result() {
+            Ok(0) | Err(_) => Next::Close,
+            Ok(n) => self.conns.get_mut(slot).after_send(n),
+        };
         self.submit_next(slot, next);
     }
 
@@ -105,27 +116,29 @@ impl Server {
 }
 
 #[derive(Clone, Copy)]
-struct Completion {
-    res: i32,
-    flags: u32,
-}
+struct Completion(io_uring::io_uring_cqe);
 
 impl Completion {
-    fn new(cqe: &io_uring::io_uring_cqe) -> Self {
-        Self {
-            res: cqe.res,
-            flags: cqe.flags,
-        }
+    fn new(cqe: io_uring::io_uring_cqe) -> Self {
+        Self(cqe)
     }
 
     fn result(&self) -> io::Result<usize> {
-        if self.res < 0 {
-            return Err(io::Error::from_raw_os_error(-self.res));
+        if self.0.res < 0 {
+            return Err(io::Error::from_raw_os_error(-self.0.res));
         }
-        Ok(self.res as usize)
+        Ok(self.0.res as usize)
     }
 
     fn more(&self) -> bool {
-        self.flags & io_uring::IORING_CQE_F_MORE != 0
+        self.0.flags & io_uring::IORING_CQE_F_MORE != 0
+    }
+
+    fn token(&self) -> Token {
+        Token::unpack(self.0.user_data)
+    }
+
+    fn buffer_id(&self) -> Option<BufferId> {
+        BufferId::from_cqe_flags(self.0.flags)
     }
 }

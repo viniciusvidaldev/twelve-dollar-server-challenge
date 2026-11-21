@@ -30,6 +30,24 @@ impl Mmap {
         Ok(Self { ptr, len })
     }
 
+    pub fn anon(len: usize) -> io::Result<Self> {
+        let raw = unsafe {
+            mmap::mmap(
+                ptr::null_mut(),
+                len,
+                mmap::PROT_READ | mmap::PROT_WRITE,
+                mmap::MAP_PRIVATE | mmap::MAP_ANONYMOUS | mmap::MAP_POPULATE,
+                -1,
+                0,
+            )
+        };
+        if raw == mmap::MAP_FAILED {
+            return Err(io::Error::last_os_error());
+        }
+        let ptr = NonNull::new(raw.cast()).ok_or_else(|| io::Error::other("mmap returned null"))?;
+        Ok(Self { ptr, len })
+    }
+
     pub fn as_ptr(&self) -> *mut u8 {
         self.ptr.as_ptr()
     }
