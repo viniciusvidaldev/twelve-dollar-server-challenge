@@ -1,14 +1,16 @@
-use std::{ffi::CString, io, net::TcpListener};
+use std::{ffi::CString, io, net::TcpListener, os::fd::AsRawFd};
 
 use crate::{
     app::{App, Auth},
     db::Db,
+    eventfd::new_eventfd,
     server::Server,
     uring::IoUring,
 };
 
 mod app;
 mod db;
+mod eventfd;
 mod http;
 mod mmap;
 mod rlimit;
@@ -16,8 +18,16 @@ mod server;
 mod sys;
 mod uring;
 
-const BUF_ENTRIES: u16 = 1024;
-const BUF_SIZE: u32 = 4096;
+const SQE_ENTRIES: u32 = 4096;
+// >= file slots per ring: each conn has at most one recv/send in flight, so the cq can't overflow
+const CQE_ENTRIES: u32 = 65536;
+
+// provided buffers
+const BUF_ENTRIES: u16 = 16384;
+const BUF_SIZE: u32 = 2048;
+
+const RINGS: usize = 5;
+const FILE_SLOTS: u64 = 65535;
 
 fn main() -> io::Result<()> {
     let path = std::env::var("SQLITE_PATH").expect("SQLITE_PATH not set");
@@ -36,10 +46,23 @@ fn main() -> io::Result<()> {
 
     // Raises soft fd limit.
     let nofile = rlimit::raise_nofile()?;
-    let mut ring = IoUring::new(4096)?;
-    ring.setup_buf_ring(BUF_ENTRIES, BUF_SIZE)?;
-    ring.register_files_sparse(nofile.min(65535) as u32)?;
 
-    let mut server = Server::new(ring, listener, app);
+    let slots = nofile.min(FILE_SLOTS) as u32;
+
+    let mut rings = Vec::with_capacity(RINGS);
+    let mut wakers = Vec::with_capacity(RINGS - 1);
+    for i in 0..RINGS {
+        let mut ring = IoUring::new(SQE_ENTRIES, CQE_ENTRIES)?;
+        ring.setup_buf_ring(BUF_ENTRIES, BUF_SIZE)?;
+        ring.register_files_sparse(slots)?;
+        if i > 0 {
+            let efd = new_eventfd()?;
+            ring.register_eventfd(efd.as_raw_fd())?;
+            wakers.push(efd);
+        }
+        rings.push(ring);
+    }
+
+    let mut server = Server::new(rings, wakers, listener, app);
     server.run()
 }

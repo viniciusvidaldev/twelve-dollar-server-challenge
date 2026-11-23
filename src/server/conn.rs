@@ -27,7 +27,7 @@ impl Conn {
         Self {
             file,
             partial: Vec::new(),
-            out: Vec::with_capacity(4096),
+            out: Vec::new(),
             sent: 0,
         }
     }
@@ -74,7 +74,7 @@ impl Conn {
         if self.sent < self.out.len() {
             return Next::Send;
         }
-        self.out.clear();
+        self.out = Vec::new();
         self.sent = 0;
         Next::Recv
     }

@@ -156,7 +156,11 @@ pub const SYS_IO_URING_ENTER: c_long = 426;
 pub const SYS_IO_URING_REGISTER: c_long = 427;
 
 // io_uring_setup flags
+pub const IORING_SETUP_CQSIZE: u32 = 1 << 3;
 pub const IORING_SETUP_NO_SQARRAY: u32 = 1 << 16;
+
+// sq ring flags
+pub const IORING_SQ_CQ_OVERFLOW: u32 = 1 << 1;
 
 // io_uring_params.features
 pub const IORING_FEAT_SINGLE_MMAP: u32 = 1 << 0;
@@ -169,6 +173,7 @@ pub const IORING_OFF_SQES: i64 = 0x10000000;
 pub const IORING_ENTER_GETEVENTS: u32 = 1 << 0;
 
 // io_uring_register opcodes and flags
+pub const IORING_REGISTER_EVENTFD: c_uint = 4;
 pub const IORING_REGISTER_FILES2: c_uint = 13;
 pub const IORING_RSRC_REGISTER_SPARSE: u32 = 1 << 0;
 
@@ -176,6 +181,7 @@ pub const IORING_REGISTER_PBUF_RING: c_uint = 22;
 
 // sqe.opcode
 pub const IORING_OP_NOP: u8 = 0;
+pub const IORING_OP_POLL_ADD: u8 = 6;
 pub const IORING_OP_ACCEPT: u8 = 13;
 pub const IORING_OP_CLOSE: u8 = 19;
 pub const IORING_OP_SEND: u8 = 26;
@@ -187,6 +193,10 @@ pub const IOSQE_BUFFER_SELECT: u8 = 1 << 5;
 
 // sqe.ioprio for accept
 pub const IORING_ACCEPT_MULTISHOT: u16 = 1 << 0;
+
+// poll_add: sqe.len, sqe.poll32_events
+pub const IORING_POLL_ADD_MULTI: u32 = 1 << 0;
+pub const POLLIN: u32 = 0x0001;
 
 // sqe.file_index
 pub const IORING_FILE_INDEX_ALLOC: u32 = u32::MAX;

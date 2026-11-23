@@ -2,7 +2,11 @@ mod conn;
 mod submit;
 mod token;
 
-use std::{io, net::TcpListener};
+use std::{
+    io,
+    net::TcpListener,
+    os::fd::{AsRawFd, OwnedFd, RawFd},
+};
 
 use crate::{
     app::App,
@@ -14,42 +18,88 @@ use crate::{
     uring::{BufferId, FixedFile, IoUring},
 };
 
-pub struct Server {
-    listener: TcpListener,
+struct Shard {
     ring: IoUring,
     conns: Slab,
-    app: App,
     accept_paused: bool,
 }
 
+pub struct Server {
+    listener: TcpListener,
+    shards: Vec<Shard>,
+    // list of eventfd's
+    wakers: Vec<OwnedFd>,
+    app: App,
+}
+
 impl Server {
-    pub fn new(ring: IoUring, listener: TcpListener, app: App) -> Self {
+    pub fn new(rings: Vec<IoUring>, wakers: Vec<OwnedFd>, listener: TcpListener, app: App) -> Self {
+        // run() polls wakers[i] from ring 0 to wake for rings[i + 1]
+        assert_eq!(
+            wakers.len(),
+            rings.len() - 1,
+            "one waker per ring except ring 0"
+        );
+
         Self {
             listener,
-            ring,
-            conns: Slab::new(),
+            shards: rings.into_iter().map(Shard::new).collect(),
+            wakers,
             app,
-            accept_paused: false,
         }
     }
 
     pub fn run(&mut self) -> io::Result<()> {
-        self.submit_accept();
+        let listen_fd = self.listener.as_raw_fd();
+        for shard in &mut self.shards {
+            shard.submit_accept(listen_fd);
+        }
+
+        // only shard 0 blocks; the others wake it through these polls
+        for waker in &self.wakers {
+            self.shards[0].submit_wake(waker.as_raw_fd());
+        }
+
         loop {
-            self.ring.submit_and_wait(1)?;
-            while let Some(cqe) = self.ring.next_cqe() {
-                let c = Completion::new(cqe);
-                match c.token() {
-                    Token::Accept => self.on_accept(c),
-                    Token::Recv(slot) => self.on_recv(slot, c),
-                    Token::Send(slot) => self.on_send(slot, c),
-                    Token::Close(slot) => self.on_close(slot, c),
-                }
+            // drain first; handling completions queues new sqes
+            for shard in &mut self.shards {
+                shard.drain(listen_fd, &mut self.app);
+            }
+
+            // then submit everything queued, before sleeping
+            for shard in &mut self.shards[1..] {
+                shard.ring.submit_and_wait(0)?;
+            }
+
+            // any ring's cqe lands here, directly or as a wake
+            self.shards[0].ring.submit_and_wait(1)?;
+        }
+    }
+}
+
+impl Shard {
+    fn new(ring: IoUring) -> Self {
+        Self {
+            ring,
+            conns: Slab::new(),
+            accept_paused: false,
+        }
+    }
+
+    fn drain(&mut self, listen_fd: RawFd, app: &mut App) {
+        while let Some(cqe) = self.ring.next_cqe() {
+            let c = Completion::new(cqe);
+            match c.token() {
+                Token::Accept => self.on_accept(c, listen_fd),
+                Token::Recv(slot) => self.on_recv(slot, c, app),
+                Token::Send(slot) => self.on_send(slot, c),
+                Token::Close(slot) => self.on_close(slot, listen_fd),
+                Token::Wake(fd) => self.on_wake(c, fd),
             }
         }
     }
 
-    fn on_accept(&mut self, c: Completion) {
+    fn on_accept(&mut self, c: Completion, listen_fd: RawFd) {
         const ENFILE: i32 = 23;
         const EMFILE: i32 = 24;
 
@@ -66,12 +116,12 @@ impl Server {
             }
             Err(e) => eprintln!("accept: {e}"),
         }
-        if !c.more() {
-            self.submit_accept();
+        if !c.armed() {
+            self.submit_accept(listen_fd);
         }
     }
 
-    fn on_recv(&mut self, slot: u32, c: Completion) {
+    fn on_recv(&mut self, slot: u32, c: Completion, app: &mut App) {
         let next = match c.result() {
             Ok(0) => Next::Close,
             Ok(n) => 'recv: {
@@ -80,7 +130,7 @@ impl Server {
                 };
 
                 let data = self.ring.bufs().get(&bid, n);
-                let next = self.conns.get_mut(slot).after_recv(data, &mut self.app);
+                let next = self.conns.get_mut(slot).after_recv(data, app);
                 self.ring.bufs_mut().recycle(bid);
                 next
             }
@@ -98,11 +148,17 @@ impl Server {
         self.submit_next(slot, next);
     }
 
-    fn on_close(&mut self, slot: u32, _c: Completion) {
+    fn on_close(&mut self, slot: u32, listen_fd: RawFd) {
         self.conns.remove(slot);
         if self.accept_paused {
             self.accept_paused = false;
-            self.submit_accept();
+            self.submit_accept(listen_fd);
+        }
+    }
+
+    fn on_wake(&mut self, c: Completion, fd: RawFd) {
+        if !c.armed() {
+            self.submit_wake(fd);
         }
     }
 
@@ -130,7 +186,7 @@ impl Completion {
         Ok(self.0.res as usize)
     }
 
-    fn more(&self) -> bool {
+    fn armed(&self) -> bool {
         self.0.flags & io_uring::IORING_CQE_F_MORE != 0
     }
 

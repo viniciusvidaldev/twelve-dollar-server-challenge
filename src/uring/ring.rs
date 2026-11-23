@@ -1,6 +1,6 @@
 use std::{
     io,
-    os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd},
+    os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd, RawFd},
     ptr,
     sync::atomic::{AtomicU32, Ordering},
 };
@@ -21,10 +21,11 @@ pub struct IoUring {
 pub struct SqFull(pub Entry<Tagged>);
 
 impl IoUring {
-    pub fn new(entries: u32) -> io::Result<Self> {
+    pub fn new(sqe_slots: u32, cqe_slots: u32) -> io::Result<Self> {
         let mut p = io_uring::io_uring_params::default();
-        p.flags = io_uring::IORING_SETUP_NO_SQARRAY;
-        let fd = cvt(unsafe { io_uring::io_uring_setup(entries, &mut p) })?;
+        p.flags = io_uring::IORING_SETUP_NO_SQARRAY | io_uring::IORING_SETUP_CQSIZE;
+        p.cq_entries = cqe_slots;
+        let fd = cvt(unsafe { io_uring::io_uring_setup(sqe_slots, &mut p) })?;
         let fd = unsafe { OwnedFd::from_raw_fd(fd) };
 
         if p.features & io_uring::IORING_FEAT_SINGLE_MMAP == 0 {
@@ -63,6 +64,7 @@ impl IoUring {
             SubmissionQueue {
                 head: base.add(off.head as usize).cast(),
                 tail: base.add(off.tail as usize).cast(),
+                flags: base.add(off.flags as usize).cast(),
                 mask: *base.add(off.ring_mask as usize).cast::<u32>(),
                 entries: *base.add(off.ring_entries as usize).cast::<u32>(),
                 sqes: sqe_map.as_ptr().cast(),
@@ -151,7 +153,8 @@ impl IoUring {
     pub fn submit_and_wait(&mut self, want: u32) -> io::Result<u32> {
         let to_submit = self.flush_sq();
         self.sync_cq();
-        let flags = if want > 0 {
+        // overflowed cqes stay parked in the kernel until an enter with GETEVENTS flushes them
+        let flags = if want > 0 || self.cq_overflowed() {
             io_uring::IORING_ENTER_GETEVENTS
         } else {
             0
@@ -166,6 +169,11 @@ impl IoUring {
                 Err(e) => return Err(e),
             }
         }
+    }
+
+    fn cq_overflowed(&self) -> bool {
+        let flags = unsafe { (*self.sq.flags).load(Ordering::Acquire) };
+        flags & io_uring::IORING_SQ_CQ_OVERFLOW != 0
     }
 
     /// Refreshes `cached_tail` only when the cached view looks empty.
@@ -209,6 +217,10 @@ impl IoUring {
         Ok(())
     }
 
+    pub fn register_eventfd(&self, efd: RawFd) -> io::Result<()> {
+        self.register(io_uring::IORING_REGISTER_EVENTFD, &efd, 1)
+    }
+
     fn register<T>(&self, opcode: u32, arg: &T, nr_args: u32) -> io::Result<()> {
         let ret = unsafe {
             io_uring::io_uring_register(
@@ -228,6 +240,7 @@ impl IoUring {
 struct SubmissionQueue {
     head: *const AtomicU32,
     tail: *const AtomicU32,
+    flags: *const AtomicU32,
     mask: u32,
     entries: u32,
     sqes: *mut io_uring::io_uring_sqe,

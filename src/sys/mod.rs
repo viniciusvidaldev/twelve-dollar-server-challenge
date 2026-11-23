@@ -1,3 +1,4 @@
+pub mod eventfd;
 pub mod io_uring;
 pub mod mmap;
 pub mod resource;

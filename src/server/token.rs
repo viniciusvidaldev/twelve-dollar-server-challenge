@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, os::fd::RawFd};
 
 #[derive(Clone, Copy, Debug)]
 pub enum Token {
@@ -6,26 +6,39 @@ pub enum Token {
     Recv(u32),
     Send(u32),
     Close(u32),
+    Wake(RawFd),
+}
+
+const ACCEPT: u64 = 0;
+const RECV: u64 = 1;
+const SEND: u64 = 2;
+const CLOSE: u64 = 3;
+const WAKE: u64 = 4;
+
+fn tagged(tag: u64, payload: u32) -> u64 {
+    tag << 32 | payload as u64
 }
 
 impl Token {
     pub fn pack(self) -> u64 {
         match self {
-            Self::Accept => 0,
-            Self::Recv(slot) => (1 << 32) | slot as u64,
-            Self::Send(slot) => (2 << 32) | slot as u64,
-            Self::Close(slot) => (3 << 32) | slot as u64,
+            Self::Accept => tagged(ACCEPT, 0),
+            Self::Recv(slot) => tagged(RECV, slot),
+            Self::Send(slot) => tagged(SEND, slot),
+            Self::Close(slot) => tagged(CLOSE, slot),
+            Self::Wake(fd) => tagged(WAKE, fd as u32),
         }
     }
 
     pub fn unpack(user_data: u64) -> Self {
-        let slot = user_data as u32;
+        let payload = user_data as u32;
         match user_data >> 32 {
-            0 => Self::Accept,
-            1 => Self::Recv(slot),
-            2 => Self::Send(slot),
-            3 => Self::Close(slot),
-            _ => unreachable!("unknown op kind in user_data"),
+            ACCEPT => Self::Accept,
+            RECV => Self::Recv(payload),
+            SEND => Self::Send(payload),
+            CLOSE => Self::Close(payload),
+            WAKE => Self::Wake(payload as RawFd),
+            tag => unreachable!("unknown token tag {tag}"),
         }
     }
 }
@@ -37,6 +50,7 @@ impl fmt::Display for Token {
             Self::Recv(slot) => write!(f, "recv[{slot}]"),
             Self::Send(slot) => write!(f, "send[{slot}]"),
             Self::Close(slot) => write!(f, "close[{slot}]"),
+            Self::Wake(fd) => write!(f, "wake[{fd}]"),
         }
     }
 }

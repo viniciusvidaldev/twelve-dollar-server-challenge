@@ -1,15 +1,13 @@
-use std::os::fd::AsRawFd;
+use std::os::fd::RawFd;
 
 use crate::{
-    server::{Server, token::Token},
+    server::{Shard, token::Token},
     uring::{Entry, Op, SqFull, Tagged},
 };
 
-impl Server {
-    pub(super) fn submit_accept(&mut self) {
-        let op = Op::Accept {
-            fd: self.listener.as_raw_fd(),
-        };
+impl Shard {
+    pub(super) fn submit_accept(&mut self, listen_fd: RawFd) {
+        let op = Op::Accept { fd: listen_fd };
         let entry = op.encode().user_data(Token::Accept.pack());
         self.push(entry)
     }
@@ -43,6 +41,13 @@ impl Server {
         let op = Op::Close { file };
         let entry = op.encode().user_data(Token::Close(slot).pack());
         self.push(entry)
+    }
+
+    pub(super) fn submit_wake(&mut self, fd: RawFd) {
+        let entry = Op::PollAdd { fd }
+            .encode()
+            .user_data(Token::Wake(fd).pack());
+        self.push(entry);
     }
 
     fn push(&mut self, mut entry: Entry<Tagged>) {

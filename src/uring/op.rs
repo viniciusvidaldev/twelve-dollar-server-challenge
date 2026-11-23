@@ -36,6 +36,9 @@ pub enum Op {
     Close {
         file: FixedFile,
     },
+    PollAdd {
+        fd: RawFd,
+    },
 }
 
 impl Op {
@@ -72,6 +75,12 @@ impl Op {
                 sqe.opcode = io_uring::IORING_OP_CLOSE;
                 sqe.fd = 0;
                 sqe.splice_fd_in_or_file_index.file_index = file.close_index();
+            }
+            Self::PollAdd { fd } => {
+                sqe.opcode = io_uring::IORING_OP_POLL_ADD;
+                sqe.fd = fd;
+                sqe.op_flags.poll32_events = io_uring::POLLIN;
+                sqe.len = io_uring::IORING_POLL_ADD_MULTI;
             }
         }
         Entry {
