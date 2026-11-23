@@ -95,9 +95,11 @@ impl Shard {
             match c.token() {
                 Token::Accept => self.on_accept(c, listen_fd),
                 Token::Recv(slot) => self.on_recv(slot, c, app),
-                Token::Send(slot) => self.on_send(slot, c),
+                Token::Send(slot) => self.on_send(slot, c, app),
                 Token::Close(slot) => self.on_close(slot, listen_fd),
                 Token::Wake(fd) => self.on_wake(c, fd),
+                // the slot may already be freed; the recv's own cqe carries the outcome
+                Token::Cancel(_) => {}
             }
         }
     }
@@ -125,6 +127,11 @@ impl Shard {
     }
 
     fn on_recv(&mut self, slot: u32, c: Completion, app: &mut App) {
+        let conn = self.conns.get_mut(slot);
+        if !c.armed() {
+            conn.io().recv_armed = false;
+        }
+
         let next = match c.result() {
             Ok(0) => Next::Close,
             Ok(n) => 'recv: {
@@ -132,31 +139,45 @@ impl Shard {
                     break 'recv Next::Close;
                 };
 
-                let data = self.ring.bufs().get(&bid, n);
-                let next = self.conns.get_mut(slot).after_recv(data, app);
+                // the buffer goes back either way; a closing conn just drops the data
+                let next = if conn.io().closing {
+                    Next::Wait
+                } else {
+                    conn.after_recv(self.ring.bufs().get(&bid, n), app)
+                };
                 self.ring.bufs_mut().recycle(bid);
                 next
             }
-            Err(e) if e.raw_os_error() == Some(io_uring::ENOBUFS) => Next::Recv,
+            // the multishot ended without a buffer; advance re-arms it
+            Err(e) if e.raw_os_error() == Some(io_uring::ENOBUFS) => Next::Wait,
             Err(_) => Next::Close,
         };
-        self.submit_next(slot, next);
+        self.advance(slot, next);
     }
 
-    fn on_send(&mut self, slot: u32, c: Completion) {
-        let next = match c.result() {
-            Ok(0) | Err(_) => Next::Close,
-            Ok(n) => self.conns.get_mut(slot).after_send(n),
+    fn on_send(&mut self, slot: u32, c: Completion, app: &mut App) {
+        let conn = self.conns.get_mut(slot);
+        conn.io().sending = false;
+
+        let next = if conn.io().closing {
+            Next::Wait
+        } else {
+            match c.result() {
+                Ok(0) | Err(_) => Next::Close,
+                Ok(n) => conn.after_send(n, app),
+            }
         };
-        self.submit_next(slot, next);
+        self.advance(slot, next);
     }
 
     fn on_close(&mut self, slot: u32, listen_fd: RawFd) {
-        self.conns.remove(slot);
+        self.conns.get_mut(slot).io().closed = true;
+        // the fixed file slot is free once the close completes, even if the conn slot isn't yet
         if self.accept_paused {
             self.accept_paused = false;
             self.submit_accept(listen_fd);
         }
+        self.try_free(slot);
     }
 
     fn on_wake(&mut self, c: Completion, fd: RawFd) {
@@ -165,11 +186,35 @@ impl Shard {
         }
     }
 
-    fn submit_next(&mut self, slot: u32, next: Next) {
+    fn advance(&mut self, slot: u32, next: Next) {
         match next {
             Next::Send => self.submit_send(slot),
-            Next::Recv => self.submit_recv(slot),
-            Next::Close => self.submit_close(slot),
+            Next::Close => self.start_closing(slot),
+            Next::Wait => {}
+        }
+
+        let io = self.conns.get_mut(slot).io();
+        if !io.closing && !io.recv_armed {
+            self.submit_recv(slot);
+        }
+        self.try_free(slot);
+    }
+
+    // cancel and close go out together; whichever of recv, send and close finishes last frees the slot
+    fn start_closing(&mut self, slot: u32) {
+        let io = self.conns.get_mut(slot).io();
+        if !io.start_closing() {
+            return;
+        }
+        if io.recv_armed {
+            self.submit_cancel(slot);
+        }
+        self.submit_close(slot);
+    }
+
+    fn try_free(&mut self, slot: u32) {
+        if self.conns.get_mut(slot).io().can_free() {
+            self.conns.remove(slot);
         }
     }
 }

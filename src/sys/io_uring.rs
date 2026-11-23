@@ -183,6 +183,7 @@ pub const IORING_REGISTER_PBUF_RING: c_uint = 22;
 pub const IORING_OP_NOP: u8 = 0;
 pub const IORING_OP_POLL_ADD: u8 = 6;
 pub const IORING_OP_ACCEPT: u8 = 13;
+pub const IORING_OP_ASYNC_CANCEL: u8 = 14;
 pub const IORING_OP_CLOSE: u8 = 19;
 pub const IORING_OP_SEND: u8 = 26;
 pub const IORING_OP_RECV: u8 = 27;
@@ -193,6 +194,9 @@ pub const IOSQE_BUFFER_SELECT: u8 = 1 << 5;
 
 // sqe.ioprio for accept
 pub const IORING_ACCEPT_MULTISHOT: u16 = 1 << 0;
+
+// sqe.ioprio for recv
+pub const IORING_RECV_MULTISHOT: u16 = 1 << 1;
 
 // poll_add: sqe.len, sqe.poll32_events
 pub const IORING_POLL_ADD_MULTI: u32 = 1 << 0;

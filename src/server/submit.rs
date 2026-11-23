@@ -13,17 +13,24 @@ impl Shard {
     }
 
     pub(super) fn submit_recv(&mut self, slot: u32) {
-        let file = self.conns.get_mut(slot).file();
-        let op = Op::Recv {
-            file,
-            len: self.ring.bufs().buf_size(),
-        };
+        let conn = self.conns.get_mut(slot);
+        conn.io().recv_armed = true;
+        let op = Op::Recv { file: conn.file() };
         let entry = op.encode().user_data(Token::Recv(slot).pack());
+        self.push(entry)
+    }
+
+    pub(super) fn submit_cancel(&mut self, slot: u32) {
+        let op = Op::AsyncCancel {
+            user_data: Token::Recv(slot).pack(),
+        };
+        let entry = op.encode().user_data(Token::Cancel(slot).pack());
         self.push(entry)
     }
 
     pub(super) fn submit_send(&mut self, slot: u32) {
         let conn = self.conns.get_mut(slot);
+        conn.io().sending = true;
         let file = conn.file();
         let buf = conn.unsent();
         let op = Op::Send {

@@ -26,7 +26,6 @@ pub enum Op {
     },
     Recv {
         file: FixedFile,
-        len: u32,
     },
     Send {
         file: FixedFile,
@@ -38,6 +37,9 @@ pub enum Op {
     },
     PollAdd {
         fd: RawFd,
+    },
+    AsyncCancel {
+        user_data: u64,
     },
 }
 
@@ -55,13 +57,15 @@ impl Op {
                 sqe.ioprio = io_uring::IORING_ACCEPT_MULTISHOT;
                 sqe.splice_fd_in_or_file_index.file_index = io_uring::IORING_FILE_INDEX_ALLOC;
             }
-            Self::Recv { file, len } => {
+            Self::Recv { file } => {
                 sqe.opcode = io_uring::IORING_OP_RECV;
                 sqe.fd = file.index();
                 sqe.flags |= io_uring::IOSQE_FIXED_FILE;
                 sqe.flags |= io_uring::IOSQE_BUFFER_SELECT;
+                sqe.ioprio = io_uring::IORING_RECV_MULTISHOT;
                 sqe.addr_or_splice_off_in.addr = 0;
-                sqe.len = len;
+                // multishot recv rejects a len; each cqe gets up to one provided buffer
+                sqe.len = 0;
                 sqe.buf_index_or_group.buf_group = BufRing::BGID;
             }
             Self::Send { file, buf, len } => {
@@ -81,6 +85,12 @@ impl Op {
                 sqe.fd = fd;
                 sqe.op_flags.poll32_events = io_uring::POLLIN;
                 sqe.len = io_uring::IORING_POLL_ADD_MULTI;
+            }
+            Self::AsyncCancel { user_data } => {
+                sqe.opcode = io_uring::IORING_OP_ASYNC_CANCEL;
+                sqe.fd = -1;
+                // cancels the request whose user_data matches
+                sqe.addr_or_splice_off_in.addr = user_data;
             }
         }
         Entry {
