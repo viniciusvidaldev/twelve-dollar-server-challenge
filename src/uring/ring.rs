@@ -104,14 +104,21 @@ impl IoUring {
 
         let br = BufRing::new(entries, buf_size)?;
 
-        let reg = io_uring::io_uring_buf_reg {
+        let mut reg = io_uring::io_uring_buf_reg {
             ring_addr: br.ring_addr(),
             ring_entries: br.entries() as u32,
             bgid: BufRing::BGID,
             ..Default::default()
         };
-
-        self.register(io_uring::IORING_REGISTER_PBUF_RING, &reg, 1)?;
+        let first = self.register(io_uring::IORING_REGISTER_PBUF_RING, &reg, 1);
+        if let Err(e) = first {
+            if e.raw_os_error() != Some(io_uring::EINVAL) {
+                return Err(e);
+            }
+            // ubuntu 6.8.0-136+ rejects zeroed reserved words (launchpad #2162843)
+            reg.resv[0] = 1;
+            self.register(io_uring::IORING_REGISTER_PBUF_RING, &reg, 1)?;
+        }
         self.bufs = Some(br);
         Ok(())
     }

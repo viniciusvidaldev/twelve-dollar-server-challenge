@@ -211,6 +211,7 @@ pub const IORING_CQE_F_BUFFER: u32 = 1 << 0;
 pub const IORING_CQE_BUFFER_SHIFT: u32 = 16;
 
 // errno
+pub const EINVAL: i32 = 22;
 pub const ENOBUFS: i32 = 105;
 
 pub unsafe fn io_uring_setup(entries: u32, p: *mut io_uring_params) -> c_int {
