@@ -37,7 +37,6 @@ pub const SQLITE_PREPARE_PERSISTENT: c_uint = 0x01;
 
 pub const SQLITE_STATIC: sqlite3_destructor = None;
 
-#[link(name = "sqlite3")]
 unsafe extern "C" {
     pub fn sqlite3_open_v2(
         filename: *const c_char,
