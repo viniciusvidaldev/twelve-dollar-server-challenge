@@ -48,7 +48,8 @@ impl<'q> Query<'q> {
         self.check(code)
     }
 
-    // SQLITE_STATIC: sqlite reads value until Drop clears the bindings
+    // SQLITE_STATIC: sqlite keeps the pointer after Drop, but only reads it while stepping, and every
+    // query rebinds all its parameters before stepping
     pub(super) fn bind_text(&mut self, idx: c_int, value: &'q [u8]) -> Result<(), Error> {
         let Ok(len) = c_int::try_from(value.len()) else {
             return Err(Error {
@@ -84,10 +85,9 @@ impl<'q> Query<'q> {
 
 impl Drop for Query<'_> {
     fn drop(&mut self) {
-        unsafe {
-            sqlite::sqlite3_reset(self.stmt.raw());
-            sqlite::sqlite3_clear_bindings(self.stmt.raw());
-        }
+        // no sqlite3_clear_bindings: it expires statements whose plan used a bound value
+        // (posts by_id), so sqlite re-parses them on the next step
+        unsafe { sqlite::sqlite3_reset(self.stmt.raw()) };
     }
 }
 

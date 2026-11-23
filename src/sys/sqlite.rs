@@ -65,7 +65,6 @@ unsafe extern "C" {
     ) -> c_int;
     pub fn sqlite3_step(stmt: *mut sqlite3_stmt) -> c_int;
     pub fn sqlite3_reset(stmt: *mut sqlite3_stmt) -> c_int;
-    pub fn sqlite3_clear_bindings(stmt: *mut sqlite3_stmt) -> c_int;
     pub fn sqlite3_finalize(stmt: *mut sqlite3_stmt) -> c_int;
     pub fn sqlite3_changes64(db: *mut sqlite3) -> i64;
     pub fn sqlite3_db_handle(stmt: *mut sqlite3_stmt) -> *mut sqlite3;
