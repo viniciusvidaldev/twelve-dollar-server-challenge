@@ -171,7 +171,12 @@ impl IoUring {
         }
     }
 
-    fn cq_overflowed(&self) -> bool {
+    pub fn has_pending(&self) -> bool {
+        // flush_sq publishes local_tail on every submit; anything past it is unsubmitted
+        self.sq.local_tail != unsafe { (*self.sq.tail).load(Ordering::Relaxed) }
+    }
+
+    pub fn cq_overflowed(&self) -> bool {
         let flags = unsafe { (*self.sq.flags).load(Ordering::Acquire) };
         flags & io_uring::IORING_SQ_CQ_OVERFLOW != 0
     }

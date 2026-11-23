@@ -68,7 +68,10 @@ impl Server {
 
             // then submit everything queued, before sleeping
             for shard in &mut self.shards[1..] {
-                shard.ring.submit_and_wait(0)?;
+                // an overflowed cq needs an enter to flush, even with nothing to submit
+                if shard.ring.has_pending() || shard.ring.cq_overflowed() {
+                    shard.ring.submit_and_wait(0)?;
+                }
             }
 
             // any ring's cqe lands here, directly or as a wake
