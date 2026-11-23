@@ -5,6 +5,7 @@ use crate::{
     db::Db,
     eventfd::new_eventfd,
     server::Server,
+    sys::{cvt, socket},
     uring::IoUring,
 };
 
@@ -43,6 +44,7 @@ fn main() -> io::Result<()> {
     let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into());
     let port = std::env::var("PORT").unwrap_or_else(|_| "8080".into());
     let listener = TcpListener::bind(format!("{host}:{port}"))?;
+    cvt(unsafe { socket::listen(listener.as_raw_fd(), 4096) })?;
 
     // Raises soft fd limit.
     let nofile = rlimit::raise_nofile()?;
