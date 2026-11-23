@@ -11,6 +11,8 @@ const MAX_PARTIAL: usize = 4096;
 pub struct Io {
     // the multishot recv can still post cqes for this slot
     pub recv_armed: bool,
+    // recv hit ENOBUFS; the slot sits in the shard's starved queue until rearmed
+    pub starved: bool,
     pub sending: bool,
     pub closing: bool,
     pub closed: bool,
@@ -20,6 +22,7 @@ impl Io {
     fn new() -> Self {
         Self {
             recv_armed: false,
+            starved: false,
             sending: false,
             closing: false,
             closed: false,
@@ -28,6 +31,10 @@ impl Io {
 
     pub fn can_free(&self) -> bool {
         if self.recv_armed {
+            return false;
+        }
+        // the starved queue still holds this slot
+        if self.starved {
             return false;
         }
         if self.sending {

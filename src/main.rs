@@ -24,7 +24,7 @@ const SQE_ENTRIES: u32 = 4096;
 const CQE_ENTRIES: u32 = 65536;
 
 // provided buffers
-const BUF_ENTRIES: u16 = 8192;
+const BUF_ENTRIES: u16 = 16384;
 const BUF_SIZE: u32 = 1024;
 
 const RINGS: usize = 5;

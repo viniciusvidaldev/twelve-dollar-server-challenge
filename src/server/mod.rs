@@ -3,6 +3,7 @@ mod submit;
 mod token;
 
 use std::{
+    collections::VecDeque,
     io,
     net::TcpListener,
     os::fd::{AsRawFd, OwnedFd, RawFd},
@@ -22,6 +23,10 @@ struct Shard {
     ring: IoUring,
     conns: Slab,
     accept_paused: bool,
+    // conns whose recv hit ENOBUFS, rearmed after the drain as buffers come back
+    starved: VecDeque<u32>,
+    // buffers recycled during the current drain
+    recycled: usize,
 }
 
 pub struct Server {
@@ -64,6 +69,7 @@ impl Server {
             // drain first; handling completions queues new sqes
             for shard in &mut self.shards {
                 shard.drain(listen_fd, &mut self.app);
+                shard.rearm_starved();
             }
 
             // then submit everything queued, before sleeping
@@ -86,6 +92,30 @@ impl Shard {
             ring,
             conns: Slab::new(),
             accept_paused: false,
+            starved: VecDeque::new(),
+            recycled: 0,
+        }
+    }
+
+    // rearm at most as many as buffers came back; rearming all at once runs the ring dry again
+    fn rearm_starved(&mut self) {
+        // at least 1; a budget of 0 with every conn starved never reads, so it never recovers
+        let budget = self.recycled.max(1);
+        self.recycled = 0;
+
+        let mut rearmed = 0;
+        while rearmed < budget {
+            let Some(slot) = self.starved.pop_front() else {
+                break;
+            };
+            let io = self.conns.get_mut(slot).io();
+            io.starved = false;
+            if io.closing {
+                self.try_free(slot);
+                continue;
+            }
+            self.submit_recv(slot);
+            rearmed += 1;
         }
     }
 
@@ -146,10 +176,17 @@ impl Shard {
                     conn.after_recv(self.ring.bufs().get(&bid, n), app)
                 };
                 self.ring.bufs_mut().recycle(bid);
+                self.recycled += 1;
                 next
             }
-            // the multishot ended without a buffer; advance re-arms it
-            Err(e) if e.raw_os_error() == Some(io_uring::ENOBUFS) => Next::Wait,
+            // the multishot ended without a buffer; rearm_starved rearms it once buffers come back
+            Err(e) if e.raw_os_error() == Some(io_uring::ENOBUFS) => {
+                if !conn.io().closing {
+                    conn.io().starved = true;
+                    self.starved.push_back(slot);
+                }
+                Next::Wait
+            }
             Err(_) => Next::Close,
         };
         self.advance(slot, next);
@@ -194,7 +231,7 @@ impl Shard {
         }
 
         let io = self.conns.get_mut(slot).io();
-        if !io.closing && !io.recv_armed {
+        if !io.closing && !io.recv_armed && !io.starved {
             self.submit_recv(slot);
         }
         self.try_free(slot);
