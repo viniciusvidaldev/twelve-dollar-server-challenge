@@ -20,7 +20,6 @@ impl FixedFile {
 }
 
 pub enum Op {
-    Nop,
     Accept {
         fd: RawFd,
     },
@@ -47,10 +46,6 @@ impl Op {
     pub fn encode(&self) -> Entry<Untagged> {
         let mut sqe = io_uring::io_uring_sqe::default();
         match *self {
-            Self::Nop => {
-                sqe.opcode = io_uring::IORING_OP_NOP;
-                sqe.fd = -1;
-            }
             Self::Accept { fd } => {
                 sqe.opcode = io_uring::IORING_OP_ACCEPT;
                 sqe.fd = fd;
@@ -109,13 +104,6 @@ pub struct Untagged;
 pub struct Entry<T> {
     pub(crate) sqe: io_uring::io_uring_sqe,
     _state: PhantomData<T>,
-}
-
-impl<S> Entry<S> {
-    pub fn flags(mut self, flags: u8) -> Self {
-        self.sqe.flags = flags;
-        self
-    }
 }
 
 impl Entry<Untagged> {

@@ -62,10 +62,6 @@ impl BufRing {
         self.entries
     }
 
-    pub fn buf_size(&self) -> u32 {
-        self.buf_size
-    }
-
     pub fn get(&self, id: &BufferId, len: usize) -> &[u8] {
         debug_assert!(id.0 < self.entries);
         debug_assert!(len <= self.buf_size as usize);

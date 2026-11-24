@@ -180,7 +180,6 @@ pub const IORING_RSRC_REGISTER_SPARSE: u32 = 1 << 0;
 pub const IORING_REGISTER_PBUF_RING: c_uint = 22;
 
 // sqe.opcode
-pub const IORING_OP_NOP: u8 = 0;
 pub const IORING_OP_POLL_ADD: u8 = 6;
 pub const IORING_OP_ACCEPT: u8 = 13;
 pub const IORING_OP_ASYNC_CANCEL: u8 = 14;

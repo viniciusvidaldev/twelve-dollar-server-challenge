@@ -20,7 +20,6 @@ pub type exec_callback =
 pub type sqlite3_destructor = Option<unsafe extern "C" fn(*mut c_void)>;
 
 pub const SQLITE_OK: c_int = 0;
-pub const SQLITE_BUSY: c_int = 5;
 pub const SQLITE_TOOBIG: c_int = 18;
 pub const SQLITE_MISUSE: c_int = 21;
 pub const SQLITE_ROW: c_int = 100;
@@ -69,7 +68,6 @@ unsafe extern "C" {
     pub fn sqlite3_changes64(db: *mut sqlite3) -> i64;
     pub fn sqlite3_db_handle(stmt: *mut sqlite3_stmt) -> *mut sqlite3;
 
-    pub fn sqlite3_bind_parameter_count(stmt: *mut sqlite3_stmt) -> c_int;
     pub fn sqlite3_bind_int64(stmt: *mut sqlite3_stmt, idx: c_int, value: i64) -> c_int;
     pub fn sqlite3_bind_text(
         stmt: *mut sqlite3_stmt,
@@ -79,7 +77,6 @@ unsafe extern "C" {
         destructor: sqlite3_destructor,
     ) -> c_int;
 
-    pub fn sqlite3_column_count(stmt: *mut sqlite3_stmt) -> c_int;
     pub fn sqlite3_column_int64(stmt: *mut sqlite3_stmt, col: c_int) -> i64;
     pub fn sqlite3_column_text(stmt: *mut sqlite3_stmt, col: c_int) -> *const c_uchar;
     pub fn sqlite3_column_bytes(stmt: *mut sqlite3_stmt, col: c_int) -> c_int;
