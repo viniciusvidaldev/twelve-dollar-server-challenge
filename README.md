@@ -7,4 +7,3 @@ how many users can one $12/month server (1 vCPU, 2 GB RAM) handle with a SQLite-
 - [`schema.sql`](schema.sql) — the fixed SQLite schema
 - [`seed/`](seed) — builds the seed database (`bash seed/make-seed.sh`)
 - [`test/`](test) — the challenge's test suite
-- [`bench/`](bench) — the k6 load test and Nginx config
