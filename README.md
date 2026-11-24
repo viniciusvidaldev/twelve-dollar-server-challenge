@@ -33,13 +33,16 @@ Measured on my machine: a Linux VM on an Apple M3 Pro, with the server pinned to
 The load comes from [mload](https://github.com/arjaythedev/million-users-challenge/tree/main/bench/mload), the
 challenge's user model, running on the VM's other cores over loopback. Each run ramps up for 60 s, then holds for 2 minutes.
 
-| Users | req/s | p95 | p99 | Errors | Server CPU (1 core) | Server RAM |
+| Users | req/s | p95 | p99 | Errors | Server CPU (1 core) | Process RAM |
 |---:|---:|---:|---:|---:|---:|---:|
 | 20,000 | 1,820 | 0.5 ms | 1.1 ms | 0% | 9% | 95 MB |
 | 60,000 | 5,466 | 0.6 ms | 2.1 ms | 0% | 19% | 99 MB |
 | 100,000 | 9,109 | 0.8 ms | 4.1 ms | 0% | 28% | 100 MB |
 | 150,000 | 13,657 | 2.0 ms | 93 ms | 0% | 46% | 106 MB |
 | 200,000 | 18,105 | 119 ms | 924 ms | 0% | 52% | 108 MB |
+
+Process RAM is the server's own memory. On top of that, the kernel keeps about 2–3 KB per open connection
+(socket and TCP state), so around 400–600 MB more at 200,000 users.
 
 At 200,000 users the server used about half of its core. It could go higher, but the environment didn't let me
 measure it: at 300,000 users the load generator needed more CPU and memory than the laptop could give it while
@@ -57,7 +60,7 @@ src/app/      routing, handlers, JWT auth, JSON responses
 src/db/       SQLite connection, prepared statements, queries
 src/sys/      raw syscall and FFI declarations
 src/http.rs   HTTP/1.1 request parser
-vendor/       SQLite amalgamation
+vendor/       SQLite source code (sqlite3.c and sqlite3.h)
 ```
 
 ## Running it
